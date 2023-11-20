@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@latest/dist/echarts.min.js"></script>
+    <style> /* Set the size of the div element that contains the chart */ .chart { width: 600px; height: 400px; } </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <title>PlayComp - Visualizer</title>
+</head>
+<body>
+
+    <!-- Spider Chart -->
+    <canvas id="spiderChart" class="chart"></canvas>
+
+    <!-- Bar Chart -->
+    <canvas id="barChart" class="chart"></canvas>
+
+    <!-- Gauge -->
+    <div id="gauge" class="chart"></div>
+    <script>
+        var gauge = echarts.init(document.getElementById('gauge'));
+        gauge.setOption({
+            series: [{ name: 'Business Indicator', type: 'gauge', detail: {formatter:'{value}%'}, data: [{value: 61, name: 'Completion'}] }]
+        });
+    </script>
+
+    <!-- Candlestick Chart -->
+    <div id="candlestickChart" class="chart"></div>
+    <script>
+        var candlestickChart = echarts.init(document.getElementById('candlestickChart'));
+        candlestickChart.setOption({
+            dataset: { source: [ ['2017-10-24', 20, 30, 10, 35], ['2017-10-25', 40, 60, 30, 70], ['2017-10-26', 55, 80, 55, 85], ['2017-10-27', 80, 90, 70, 90], ['2017-10-28', 90, 100, 80, 100] ] },
+            xAxis: { type: 'category' },
+            yAxis: {},
+            series: [{ type: 'k' }]
+        });
+    </script>
+
+    <!-- Chart JS with JSON -->
+    <script>
+        async function getJsonFromUrl(url) {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const json = await response.json();
+                return json;
+            } catch (error) {
+                console.error('There has been a problem with your fetch operation:', error);
+            }
+        }
+
+        // Function to create the spider chart
+        async function createSpiderChart(df, sessionId, groupAverage) {
+            // Filter session specific data
+            let sessionSpecificData = df.filter(item => item.sessionId === sessionId);
+
+            // Calculate scenePuntuationPercentage
+            sessionSpecificData = sessionSpecificData.map(data => {
+                data.scenePuntuationPercentage = data.scenePuntuation / data.maxScenePuntuation * 100;
+                return data;
+            });
+
+            // Group by 'actualChapter' and calculate mean of 'scenePuntuationPercentage'
+            let chapterGroupedSession = groupBy(sessionSpecificData, 'actualChapter', 'scenePuntuationPercentage');
+
+            // Prepare data for the chart
+            let labels = Object.keys(chapterGroupedSession);
+            let statsSession = Object.values(chapterGroupedSession).map(data => data[0]);
+            let statsAll = Object.values(groupAverage); // Assuming groupAverage is already an array
+
+            // Create spider chart using Chart.js
+            var ctx = document.getElementById('spiderChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'radar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Sesión ' + sessionId,
+                        data: statsSession,
+                        backgroundColor: 'rgba(0, 0, 255, 0.5)',
+                        borderColor: 'blue',
+                        borderWidth: 2
+                    }, {
+                        label: 'Promedio Grupal',
+                        data: statsAll,
+                        backgroundColor: 'rgba(0, 255, 0, 0.5)',
+                        borderColor: 'green',
+                        borderWidth: 2,
+                        borderDash: [5, 5]
+                    }]
+                },
+                options: {
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Nivel de Indicadores para SessionId: ' + sessionId,
+                        },
+                    }
+                }
+            });
+        }
+
+        // Function to create the bar chart
+        function createBarChart(df, sessionId, groupAverage) {
+            
+            // Calculate average duration per chapter
+            let averageDurationPerChapter = calculateMeanOfObjectArrays(groupBy(df, 'actualChapter', 'sesionDurationInSec'));
+
+            // Filter session specific data
+            let sessionSpecificData = df.filter(item => item.sessionId === sessionId);
+            
+            // Calculate session duration per chapter
+            let labels = Object.keys(groupAverage);
+            let sessionDurationPerChapter = groupBy(sessionSpecificData, 'actualChapter', 'sesionDurationInSec');
+            let statsAll = sessionDurationPerChapter;
+
+            // Create chart
+            let ctx = document.getElementById('barChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Promedio Grupal',
+                        data: groupAverage,
+                        backgroundColor: 'rgba(8, 165, 168, 0.2)',
+                        borderColor: 'rgba(8, 165, 168, 1)',
+                        borderWidth: 1
+                    }, {
+                        label: 'Sesión ' + sessionId,
+                        data: statsAll,
+                        backgroundColor: 'rgba(255, 132, 31, 0.2)',
+                        borderColor: 'rgba(255, 132, 31, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            title: { // The title for the y-axis
+                                display: true, // Whether to display the title
+                                text: 'Duración Promedio (segundos)', // The text of the title
+                                color: 'black', // The color of the title
+                            }
+                        },
+                        x: {
+                            title: { // The title for the x-axis
+                                display: true, // Whether to display the title
+                                text: 'Capítulo', // The text of the title
+                                color: 'black', // The color of the title
+                            }
+                        }
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Tiempo Dedicado a Cada Indicador'
+                        }
+                    }
+                }
+            });
+        }
+
+
+        function loadAndTransformJson(jsonData) {
+            // Extract session data
+            let sessionsData = jsonData['sessions'];
+
+            // Create an array to store session data
+            let dataRows = [];
+            for (let sessionKey in sessionsData) {
+                let sessionInfo = sessionsData[sessionKey];
+                sessionInfo['sessionKey'] = sessionKey;  // Adding session key as a column
+                dataRows.push(sessionInfo);
+            }
+
+            // Convert data types
+            let numericCols = ['maxScenePuntuation', 'scenePuntuation', 'sesionDurationInSec'];
+            dataRows = dataRows.map(row => {
+                numericCols.forEach(col => {
+                    row[col] = parseFloat(row[col]);
+                });
+                return row;
+            });
+
+            return dataRows;
+        }
+
+        async function handleData(data) {
+            // Load and transform JSON data
+            let df = loadAndTransformJson(data);
+
+            // Calculate group averages
+            let groupAverageScene = groupCalculateMeanAndSort(df, 'actualChapter', 'scenePuntuation');
+            let groupAverageDuration = groupCalculateMeanAndSort(df, 'actualChapter', 'sesionDurationInSec');
+
+            // Get session ID from user
+            let sessionIdInput = "FAECEM_012";  // Replace with actual input
+
+            // Check if session ID is in data
+            if (df.some(item => item.sessionId === sessionIdInput)) {
+                // Run analysis functions for the input session ID
+                createSpiderChart(df, sessionIdInput, groupAverageScene);
+                createBarChart(df, sessionIdInput, groupAverageDuration);
+            } else {
+                console.log("Session ID not found. Please check the ID and try again.");
+            }
+        }
+
+        function groupBy(array, groupKey, valueKey) {
+            return array.reduce((result, item) => {
+                let key = item[groupKey];
+                let value = item[valueKey];
+                if (!result[key]) {
+                    result[key] = [];
+                }
+                result[key].push(value);
+                return result;
+            }, {});
+        }
+
+        function mean(array) {
+            return array.reduce((a, b) => a + b) / array.length;
+        }
+
+        /**
+         * This function calculates the mean of each array in the input object.
+         * It assumes that each property of the object is an array of numbers.
+         * 
+         * @param {Object} object - The input object. Each property should be an array of numbers.
+         * @returns {Object} The output object. Each property will be the mean of the corresponding property in the input object.
+         */
+        function calculateMeanOfObjectArrays(object) {
+            // For each key in the object
+            Object.keys(object).forEach(key => {
+                // Calculate the mean of the array at object[key]
+                object[key] = mean(object[key]);
+            });
+
+            // Return the modified object
+            return object;
+        }
+
+
+        /**
+         * This function sorts the properties of an input object based on their keys.
+         * It creates a new object and assigns the properties in the sorted order of the keys.
+         * 
+         * @param {Object} obj - The input object whose properties are to be sorted.
+         * @returns {Object} sortedObj - The output object with properties in the sorted order of the keys.
+         */
+        function sortObjectPropertiesByKey(obj) {
+            // Get the keys and sort them
+            let keys = Object.keys(obj).sort();
+
+            // Create a new object and assign the properties in the sorted order
+            let sortedObj = {};
+            for (let key of keys) {
+                sortedObj[key] = obj[key];
+            }
+
+            // Return the sorted object
+            return sortedObj;
+        }
+
+
+        /**
+         * This function removes the property with key "undefined" from the input object,
+         * then sorts the remaining properties based on their keys.
+         * 
+         * @param {Object} obj - The input object to be cleared and sorted.
+         * @returns {Object} - The output object with the "undefined" property removed and remaining properties sorted by keys.
+         */
+        function removeUndefinedAndSortProperties(obj) {
+            // Remove the property with key "undefined"
+            delete obj["undefined"];
+
+            // Sort the remaining properties by keys and return the sorted object
+            return sortObjectPropertiesByKey(obj);
+        }
+
+        /**
+         * This function groups the input array by the specified key, calculates the mean of the grouped arrays,
+         * removes the property with key "undefined", and then sorts the remaining properties based on their keys.
+         * 
+         * @param {Array} array - The input array to be grouped and processed.
+         * @param {string} groupKey - The key to group the array by.
+         * @param {string} valueKey - The key to calculate the mean of in each group.
+         * @returns {Object} - The output object with the "undefined" property removed and remaining properties sorted by keys.
+         */
+        function groupCalculateMeanAndSort(array, groupKey, valueKey) {
+            return removeUndefinedAndSortProperties(calculateMeanOfObjectArrays(groupBy(array, groupKey, valueKey)));
+        }
+
+        const url = "https://playcompprototype-default-rtdb.europe-west1.firebasedatabase.app/.json";
+        getJsonFromUrl(url).then(data => {
+            handleData(data);
+        });
+
+    </script>
+    <p>Charts from <a href="https://echarts.apache.org/examples/en/index.html#chart-type-line" target="_blank">Examples - Apache ECharts</a></p>
+</body>
+</html>

@@ -3,12 +3,69 @@
 <head>
     <meta charset="utf-8">
     <script src="https://cdn.jsdelivr.net/npm/echarts@latest/dist/echarts.min.js"></script>
-    <style> /* Set the size of the div element that contains the chart */ .chart { width: 600px; height: 400px; } </style>
+    <style>
+        .container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+        }
+
+        /* Set the size of the div element that contains the chart */
+        .chart { width: 600px; height: 400px; }
+
+        #myCanvas {
+            display: none; /* Change to block if we want to activate a snipper as a load of the charts*/
+            background: transparent;
+            width: 200px;
+            height: 200px;
+            position: fixed; /* Changed from relative to fixed */
+            z-index: 1; /* Adjust this value as needed */
+            top: 50%; /* Center vertically */
+            left: 50%; /* Center horizontally */
+            transform: translate(-50%, -50%); /* Adjust for the size of the element */
+        }
+
+        .loader {
+            border: 16px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 16px solid #3498db;
+            width: 120px;
+            height: 120px;
+            animation: spin 2s linear infinite;
+            position: absolute;
+            top: 50%; /* Center vertically */
+            left: 50%; /* Center horizontally */
+            transform: translate(-50%, -50%); /* Adjust for the size of the element */
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes fadeOut {
+            0% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+
+    </style>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <title>PlayComp - Visualizer</title>
 </head>
 <body>
+
+    <div class="container">
+        <form action="javascript:visualizeData()">
+            <input type="text" id="myInput" placeholder="Enter session id" required>
+            <input type="submit" value="Visualize data (example: FAECEM_012)">
+        </form>
+    </div>
+
+    <div id="myCanvas">
+        <div id="spinner" class="loader"></div>
+    </div>
 
     <!-- Spider Chart -->
     <canvas id="spiderChart" class="chart"></canvas>
@@ -39,6 +96,20 @@
 
     <!-- Chart JS with JSON -->
     <script>
+
+        var sessionIdInput;
+        var spiderChart;
+        var barChart;
+        
+        function visualizeData() {
+            
+            sessionIdInput = document.getElementById('myInput').value;
+
+            getJsonFromUrl("https://playcompprototype-default-rtdb.europe-west1.firebasedatabase.app/sessions/.json").then(data => {
+                handleData(data);
+            });
+        }
+
         async function getJsonFromUrl(url) {
             try {
                 const response = await fetch(url);
@@ -71,9 +142,13 @@
             let statsSession = Object.values(chapterGroupedSession).map(data => data[0]);
             let statsAll = Object.values(groupAverage); // Assuming groupAverage is already an array
 
+            if (spiderChart) {
+                spiderChart.destroy();
+            }
+
             // Create spider chart using Chart.js
             var ctx = document.getElementById('spiderChart').getContext('2d');
-            new Chart(ctx, {
+            spiderChart = new Chart(ctx, {
                 type: 'radar',
                 data: {
                     labels: labels,
@@ -117,9 +192,13 @@
             let sessionDurationPerChapter = groupBy(sessionSpecificData, 'actualChapter', 'sesionDurationInSec');
             let statsAll = sessionDurationPerChapter;
 
+            if (barChart) {
+                barChart.destroy();
+            }
+
             // Create chart
             let ctx = document.getElementById('barChart').getContext('2d');
-            new Chart(ctx, {
+            barChart = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: labels,
@@ -166,13 +245,10 @@
 
 
         function loadAndTransformJson(jsonData) {
-            // Extract session data
-            let sessionsData = jsonData['sessions'];
-
             // Create an array to store session data
             let dataRows = [];
-            for (let sessionKey in sessionsData) {
-                let sessionInfo = sessionsData[sessionKey];
+            for (let sessionKey in jsonData) {
+                let sessionInfo = jsonData[sessionKey];
                 sessionInfo['sessionKey'] = sessionKey;  // Adding session key as a column
                 dataRows.push(sessionInfo);
             }
@@ -197,15 +273,18 @@
             let groupAverageScene = groupCalculateMeanAndSort(df, 'actualChapter', 'scenePuntuation');
             let groupAverageDuration = groupCalculateMeanAndSort(df, 'actualChapter', 'sesionDurationInSec');
 
-            // Get session ID from user
-            let sessionIdInput = "FAECEM_012";  // Replace with actual input
-
             // Check if session ID is in data
             if (df.some(item => item.sessionId === sessionIdInput)) {
+
+                // Shows spinner
+                var spinner = document.getElementById('spinner');
+                spinner.style.animation = "spin 2s linear infinite, fadeOut 0.5s linear forwards";
+
                 // Run analysis functions for the input session ID
                 createSpiderChart(df, sessionIdInput, groupAverageScene);
                 createBarChart(df, sessionIdInput, groupAverageDuration);
             } else {
+                alert("Session ID not found. Please check the ID and try again.");
                 console.log("Session ID not found. Please check the ID and try again.");
             }
         }
@@ -294,11 +373,6 @@
         function groupCalculateMeanAndSort(array, groupKey, valueKey) {
             return removeUndefinedAndSortProperties(calculateMeanOfObjectArrays(groupBy(array, groupKey, valueKey)));
         }
-
-        const url = "https://playcompprototype-default-rtdb.europe-west1.firebasedatabase.app/.json";
-        getJsonFromUrl(url).then(data => {
-            handleData(data);
-        });
 
     </script>
     <p>Charts from <a href="https://echarts.apache.org/examples/en/index.html#chart-type-line" target="_blank">Examples - Apache ECharts</a></p>

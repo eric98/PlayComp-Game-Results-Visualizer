@@ -43,7 +43,7 @@ async function createSpiderChart(df, sessionId, groupAverage) {
 
     // Prepare data for the chart
     let labels = Object.keys(chapterGroupedSession);
-    let statsSession = Object.values(chapterGroupedSession).map(data => data[0]);
+    let statsSession = calculateMeanOfObjectArrays(Object.values(chapterGroupedSession));
     let statsAll = Object.values(groupAverage); // Assuming groupAverage is already an array
 
     if (spiderChart) {
@@ -85,19 +85,18 @@ async function createSpiderChart(df, sessionId, groupAverage) {
 // Function to create the bar chart
 function createBarChart(df, sessionId, groupAverage) {
     
-    // Calculate average duration per chapter
-    let averageDurationPerChapter = calculateMeanOfObjectArrays(groupBy(df, 'actualChapter', 'sesionDurationInSec'));
-
     // Filter session specific data
     let sessionSpecificData = df.filter(item => item.sessionId === sessionId);
 
     // Calculate session duration per chapter
     let labels = Object.keys(groupAverage);
-    let sessionDurationPerChapter = groupBy(sessionSpecificData, 'actualChapter', 'sesionDurationInSec');
 
-    renameIndicatorProperties(sessionDurationPerChapter);
+    // Calculate average duration per chapter
+    let averageDurationPerChapter = groupBy(sessionSpecificData, 'actualChapter', 'sesionDurationInSec');
 
-    let statsAll = sessionDurationPerChapter;
+    renameIndicatorProperties(averageDurationPerChapter);
+
+    let statsAll = calculateMeanOfObjectArrays(averageDurationPerChapter);
 
     if (barChart) {
         barChart.destroy();
@@ -116,7 +115,7 @@ function createBarChart(df, sessionId, groupAverage) {
                 borderColor: 'rgba(8, 165, 168, 1)',
                 borderWidth: 1
             }, {
-                label: 'Sesión ' + sessionId,
+                label: 'Promedio ' + sessionId,
                 data: statsAll,
                 backgroundColor: 'rgba(255, 132, 31, 0.2)',
                 borderColor: 'rgba(255, 132, 31, 1)',
@@ -135,7 +134,7 @@ function createBarChart(df, sessionId, groupAverage) {
                 x: {
                     title: { // The title for the x-axis
                         display: true, // Whether to display the title
-                        text: 'Capítulo', // The text of the title
+                        text: 'Indicadores', // The text of the title
                         color: 'black', // The color of the title
                     }
                 }

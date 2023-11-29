@@ -1,5 +1,3 @@
-
-
 /**
  * This function groups an array of objects by a specified key and stores the values of another key in the grouped arrays.
  *

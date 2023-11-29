@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <title>PlayComp - Visualizer</title>
+    <style type="text/css">
+        .container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+        }
+
+        /* Set the size of the div element that contains the chart */
+        .chart { width: 600px; height: 400px; }
+
+        #myCanvas {
+            display: none; /* Change to block if we want to activate a snipper as a load of the charts*/
+            background: transparent;
+            width: 200px;
+            height: 200px;
+            position: fixed; /* Changed from relative to fixed */
+            z-index: 1; /* Adjust this value as needed */
+            top: 50%; /* Center vertically */
+            left: 50%; /* Center horizontally */
+            transform: translate(-50%, -50%); /* Adjust for the size of the element */
+        }
+
+        .loader {
+            border: 16px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 16px solid #3498db;
+            width: 120px;
+            height: 120px;
+            animation: spin 2s linear infinite;
+            position: absolute;
+            top: 50%; /* Center vertically */
+            left: 50%; /* Center horizontally */
+            transform: translate(-50%, -50%); /* Adjust for the size of the element */
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes fadeOut {
+            0% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <form action="javascript:visualizeData()">
+            <input type="text" id="myInput" placeholder="Enter session id" required>
+            <input type="submit" value="Visualize data (example: FAECEM_012)">
+        </form>
+    </div>
+
+    <div id="myCanvas">
+        <div id="spinner" class="loader"></div>
+    </div>
+
+    <!-- Spider Chart -->
+    <canvas id="spiderChart" class="chart"></canvas>
+
+    <!-- Bar Chart -->
+    <canvas id="barChart" class="chart"></canvas>
+
+    <!-- Chart JS with JSON -->
+    <script>
+        var sessionIdInput;
+        var spiderChart;
+        var barChart;
+
+
+        async function getJsonFromUrl(url) {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const json = await response.json();
+                return json;
+            } catch (error) {
+                console.error('There has been a problem with your fetch operation:', error);
+            }
+        }
+
+        function visualizeData() {
+            
+            sessionIdInput = document.getElementById('myInput').value;
+
+            getJsonFromUrl("https://playcompprototype-default-rtdb.europe-west1.firebasedatabase.app/sessions/.json").then(data => {
+                handleData(data);
+            });
+        }
+
+        // Function to create the spider chart
+        async function createSpiderChart(df, sessionId, groupAverage) {
+            // Filter session specific data
+            let sessionSpecificData = df.filter(item => item.sessionId === sessionId);
+
+            // Calculate scenePuntuationPercentage
+            sessionSpecificData = sessionSpecificData.map(data => {
+                data.scenePuntuationPercentage = data.scenePuntuation / data.maxScenePuntuation * 100;
+                return data;
+            });
+
+            // Group by 'actualChapter' and calculate mean of 'scenePuntuationPercentage'
+            let chapterGroupedSession = groupBy(sessionSpecificData, 'actualChapter', 'scenePuntuationPercentage');
+
+            renameIndicatorProperties(chapterGroupedSession);
+
+            // Prepare data for the chart
+            let labels = Object.keys(chapterGroupedSession);
+            let statsSession = calculateMeanOfObjectArrays(Object.values(chapterGroupedSession));
+            let statsAll = Object.values(groupAverage); // Assuming groupAverage is already an array
+
+            if (spiderChart) {
+                spiderChart.destroy();
+            }
+
+            // Create spider chart using Chart.js
+            var ctx = document.getElementById('spiderChart').getContext('2d');
+            spiderChart = new Chart(ctx, {
+                type: 'radar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Sesión ' + sessionId,
+                        data: statsSession,
+                        backgroundColor: 'rgba(0, 0, 255, 0.5)',
+                        borderColor: 'blue',
+                        borderWidth: 2
+                    }, {
+                        label: 'Promedio Grupal',
+                        data: statsAll,
+                        backgroundColor: 'rgba(0, 255, 0, 0.5)',
+                        borderColor: 'green',
+                        borderWidth: 2,
+                        borderDash: [5, 5]
+                    }]
+                },
+                options: {
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Nivel de Indicadores para SessionId: ' + sessionId,
+                        },
+                    }
+                }
+            });
+        }
+
+        // Function to create the bar chart
+        function createBarChart(df, sessionId, groupAverage) {
+            
+            // Filter session specific data
+            let sessionSpecificData = df.filter(item => item.sessionId === sessionId);
+
+            // Calculate session duration per chapter
+            let labels = Object.keys(groupAverage);
+
+            // Calculate average duration per chapter
+            let averageDurationPerChapter = groupBy(sessionSpecificData, 'actualChapter', 'sesionDurationInSec');
+
+            renameIndicatorProperties(averageDurationPerChapter);
+
+            let statsAll = calculateMeanOfObjectArrays(averageDurationPerChapter);
+
+            if (barChart) {
+                barChart.destroy();
+            }
+
+            // Create chart
+            let ctx = document.getElementById('barChart').getContext('2d');
+            barChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Promedio Grupal',
+                        data: groupAverage,
+                        backgroundColor: 'rgba(8, 165, 168, 0.2)',
+                        borderColor: 'rgba(8, 165, 168, 1)',
+                        borderWidth: 1
+                    }, {
+                        label: 'Promedio ' + sessionId,
+                        data: statsAll,
+                        backgroundColor: 'rgba(255, 132, 31, 0.2)',
+                        borderColor: 'rgba(255, 132, 31, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            title: { // The title for the y-axis
+                                display: true, // Whether to display the title
+                                text: 'Duración Promedio (segundos)', // The text of the title
+                                color: 'black', // The color of the title
+                            }
+                        },
+                        x: {
+                            title: { // The title for the x-axis
+                                display: true, // Whether to display the title
+                                text: 'Indicadores', // The text of the title
+                                color: 'black', // The color of the title
+                            }
+                        }
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Tiempo Dedicado a Cada Indicador'
+                        }
+                    }
+                }
+            });
+        }
+
+        function loadAndTransformJson(jsonData) {
+
+            // Create an array to store session data
+            let dataRows = [];
+            for (let sessionKey in jsonData) {
+                let sessionInfo = jsonData[sessionKey];
+                dataRows.push(sessionInfo);
+            }
+
+
+            // Convert data types
+            let numericCols = ['maxScenePuntuation', 'scenePuntuation', 'sesionDurationInSec'];
+            dataRows = dataRows.map(row => {
+                numericCols.forEach(col => {
+                    row[col] = parseFloat(row[col]);
+                });
+                return row;
+            });
+
+            return dataRows;
+        }
+
+        async function handleData(data) {
+            // Load and transform JSON data into an array
+            let df = loadAndTransformJson(data);
+
+            // Calculate group averages
+            let groupAverageScene = groupCalculateMeanAndSort(df, 'actualChapter', 'scenePuntuation');
+            let groupAverageDuration = groupCalculateMeanAndSort(df, 'actualChapter', 'sesionDurationInSec');
+
+            // Check if session ID is in data
+            if (df.some(item => item.sessionId === sessionIdInput)) {
+
+                // Shows spinner
+                var spinner = document.getElementById('spinner');
+                spinner.style.animation = "spin 2s linear infinite, fadeOut 0.5s linear forwards";
+
+                // Run analysis functions for the input session ID
+                createSpiderChart(df, sessionIdInput, groupAverageScene);
+                createBarChart(df, sessionIdInput, groupAverageDuration);
+            } else {
+                alert("Session ID not found. Please check the ID and try again.");
+                console.log("Session ID not found. Please check the ID and try again.");
+            }
+        }
+
+        /**
+         * This function groups an array of objects by a specified key and stores the values of another key in the grouped arrays.
+         *
+         * @param {Array} array - The input array of objects to be grouped.
+         * @param {string} groupKey - The key to group the array by.
+         * @param {string} valueKey - The key whose values are to be stored in the grouped arrays.
+         * @returns {Object} - The output object with properties named after the groupKey values and values being arrays of valueKey values.
+         */
+        function groupBy(array, groupKey, valueKey) {
+            return array.reduce((result, item) => {
+                let key = item[groupKey];
+                let value = item[valueKey];
+                if (!result[key]) {
+                    result[key] = [];
+                }
+                result[key].push(value);
+                return result;
+            }, {});
+        }
+
+        /**
+         * This function calculates the mean (average) of an array of numbers.
+         *
+         * @param {Array} array - The input array of numbers.
+         * @returns {number} - The mean of the input array.
+         */
+        function mean(array) {
+            return array.reduce((a, b) => a + b) / array.length;
+        }
+
+        /**
+         * This function calculates the mean of each array in the input object.
+         * It assumes that each property of the object is an array of numbers.
+         * 
+         * @param {Object} object - The input object. Each property should be an array of numbers.
+         * @returns {Object} The output object. Each property will be the mean of the corresponding property in the input object.
+         */
+        function calculateMeanOfObjectArrays(object) {
+            // For each key in the object
+            Object.keys(object).forEach(key => {
+                // Calculate the mean of the array at object[key]
+                object[key] = mean(object[key]);
+            });
+
+            // Return the modified object
+            return object;
+        }
+
+        /**
+         * This function sorts the properties of an input object based on their keys.
+         * It creates a new object and assigns the properties in the sorted order of the keys.
+         * 
+         * @param {Object} obj - The input object whose properties are to be sorted.
+         * @returns {Object} sortedObj - The output object with properties in the sorted order of the keys.
+         */
+        function sortObjectPropertiesByKey(obj) {
+            // Get the keys and sort them
+            let keys = Object.keys(obj).sort();
+
+            // Create a new object and assign the properties in the sorted order
+            let sortedObj = {};
+            for (let key of keys) {
+                sortedObj[key] = obj[key];
+            }
+
+            // Return the sorted object
+            return sortedObj;
+        }
+
+        /**
+         * This function renames specific indicator properties of an object using the modifyObjectProperty function.
+         *
+         * @param {Object} obj - The object whose properties are to be renamed.
+         */
+        function renameIndicatorProperties(obj) {
+            // Rename specific properties of the object
+            modifyObjectProperty(obj,"D1_1","Centrarse en los desafíos");
+            modifyObjectProperty(obj,"D1_2","Descubrir necesidades");
+            modifyObjectProperty(obj,"D1_3","Analizar el contexto");
+            modifyObjectProperty(obj,"D1_4","Identificar, crear y aprovechar oportunidades");
+            modifyObjectProperty(obj,"D2_1","Imaginar");
+            modifyObjectProperty(obj,"D3_1","Definir problemas");
+            modifyObjectProperty(obj,"D3_2","Ser curioso/a y abierto/a");
+            modifyObjectProperty(obj,"D3_3","Ser innovador/a");
+            modifyObjectProperty(obj,"D3_4","Desarrollar ideas");
+            modifyObjectProperty(obj,"D3_5","Diseñar valor");
+        }
+
+        /**
+         * This function removes the property with key "undefined" from the input object,
+         * then renames specific properties using the renameIndicatorProperties function,
+         * and finally sorts the remaining properties based on their keys.
+         * 
+         * @param {Object} obj - The input object to be cleared, renamed, and sorted.
+         * @returns {Object} - The output object with the "undefined" property removed, specific properties renamed, and remaining properties sorted by keys.
+         */
+        function cleanAndOrganizeProperties(obj) {
+            // Remove the property with key "undefined"
+            delete obj["undefined"];
+
+            // Rename specific properties of the object
+            renameIndicatorProperties(obj);
+
+            return obj; 
+        }
+
+        /**
+         * This function modifies a property of an object. If the old property does not exist,
+         * it creates a new property with the new name and assigns it a default value of [0].
+         *
+         * @param {Object} obj - The object whose property is to be modified.
+         * @param {string} oldName - The current name of the property.
+         * @param {string} newName - The new name for the property.
+         */
+        function modifyObjectProperty(obj, oldName, newName) {
+            // Check if the old property name is different from the new property name
+            if (oldName !== newName) {
+                // Check if the object has a property with the old name
+                if (obj.hasOwnProperty(oldName)) {
+                    // Define a new property on the object with the new name
+                    // and the same descriptor as the old property
+                    Object.defineProperty(obj, newName,
+                    Object.getOwnPropertyDescriptor(obj, oldName));
+                    // Delete the old property from the object
+                    delete obj[oldName];
+                } else {
+                    // If the old property does not exist on the object,
+                    // create a new property with the new name and assign it a default value of [0]
+                    obj[newName] = [0];
+                    // Log a warning to the console
+                    console.warn(`Property ${oldName} does not exist on the object.`);
+                }
+            }
+        }
+
+        /**
+         * This function groups the input array by a specified key, calculates the mean of the grouped arrays,
+         * removes the property with key "undefined", and then sorts the remaining properties based on their keys.
+         * 
+         * @param {Array} array - The input array to be grouped and processed.
+         * @param {string} groupKey - The key to group the array by.
+         * @param {string} valueKey - The key to calculate the mean of in each group.
+         * @returns {Object} - The output object with the "undefined" property removed and remaining properties sorted by keys.
+         */
+        function groupCalculateMeanAndSort(array, groupKey, valueKey) {
+            // Group the input array by the specified key and calculate the mean of the grouped arrays
+            var groupedArray = calculateMeanOfObjectArrays(groupBy(array, groupKey, valueKey));
+
+            // Remove the property with key "undefined" from the grouped array,
+            // then sort the remaining properties based on their keys
+            return cleanAndOrganizeProperties(groupedArray);
+        }
+    </script>
+</body>
+</html>
